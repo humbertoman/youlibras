@@ -79,13 +79,13 @@
                 document.getElementById('resultados').innerHTML = "<p style='color:red;'>Erro ao carregar o banco de dados.</p>";
             });
 
-        // 3. Função de busca e renderização
+        // 3. Função de busca e renderização atualizada
         function executarBusca() {
-            const termo = document.getElementById('busca').value.strip ? document.getElementById('busca').value.strip().toLowerCase() : document.getElementById('busca').value.trim().toLowerCase();
+            let termoOriginal = document.getElementById('busca').value.trim();
             const containerResultados = document.getElementById('resultados');
             containerResultados.innerHTML = "";
 
-            if (!termo) {
+            if (!termoOriginal) {
                 containerResultados.innerHTML = "<p>Por favor, digite um termo.</p>";
                 return;
             }
@@ -93,10 +93,35 @@
             let resultadosFiltrados = [];
             let ultimoVideoId = null;
             let ultimoTempo = -999;
+            
+            // Verifica se o termo começa e termina com aspas duplas (Busca Exata)
+            const ehBuscaExata = termoOriginal.startsWith('"') && termoOriginal.endsWith('"');
+            let termoParaBusca = termoOriginal.toLowerCase();
+            let regexBusca = null;
 
-            // Filtro de proximidade (mesma lógica usada no Colab)
+            if (ehBuscaExata) {
+                // Remove as aspas do termo para fazer a busca do texto limpo
+                termoParaBusca = termoOriginal.slice(1, -1).toLowerCase();
+                
+                // Cria uma Expressão Regular para "Palavra Isolada" (\b representa os limites da palavra)
+                // O parâmetro 'i' indica que ignora maiúsculas/minúsculas
+                regexBusca = new RegExp(`\\b${termoParaBusca}\\b`, 'i');
+            }
+
+            // Varre os 25 mil trechos aplicando a nova lógica e o filtro de proximidade
             bancoDados.forEach(item => {
-                if (item.texto.toLowerCase().includes(termo)) {
+                let encontrou = false;
+
+                if (ehBuscaExata) {
+                    // Se for busca exata, testa com a Expressão Regular de palavra isolada
+                    encontrou = regexBusca.test(item.texto);
+                } else {
+                    // Se não tiver aspas, mantém a busca antiga (acha no meio de qualquer palavra)
+                    encontrou = item.texto.toLowerCase().includes(termoParaBusca);
+                }
+
+                if (encontrou) {
+                    // Filtro de proximidade (5 segundos no mesmo vídeo)
                     if (item.video_id === ultimoVideoId && (item.tempo_inicio - ultimoTempo) < 5) {
                         return;
                     }
@@ -107,7 +132,7 @@
             });
 
             if (resultadosFiltrados.length === 0) {
-                containerResultados.innerHTML = `<p style="color: red;">Nenhum resultado encontrado para "<b>${termo}</b>".</p>`;
+                containerResultados.innerHTML = `<p style="color: red;">Nenhum resultado encontrado para <b>${termoOriginal}</b>.</p>`;
                 return;
             }
 
@@ -119,9 +144,9 @@
                 const segundos = Math.floor(res.tempo_inicio % 60);
                 const tempoFormatado = `${String(minutos).padStart(2, '0')}:${String(segundos).padStart(2, '0')}`;
 
-                // Destaca a palavra buscada
-                const regex = new RegExp(`(${termo})`, 'gi');
-                const textoDestacado = res.texto.replace(regex, "<mark>$1</mark>");
+                // Destaca apenas o termo pesquisado na tela
+                const regexDestaque = new RegExp(`(${termoParaBusca})`, 'gi');
+                const textoDestacado = res.texto.replace(regexDestaque, "<mark>$1</mark>");
 
                 const card = document.createElement('div');
                 card.className = 'trecho-card';
@@ -130,10 +155,8 @@
                     <div class="trecho-tempo">⏱️ Posição: ${tempoFormatado}</div>
                 `;
 
-                // Configura o clique para atualizar o player sem recarregar a página
                 card.onclick = () => {
-                    const folgaTempo = Math.max(0, Math.floor(res.tempo_inicio) - 2); // 2 segundos de folga
-                    
+                    const folgaTempo = Math.max(0, Math.floor(res.tempo_inicio) - 2);
                     if (player && player.loadVideoById) {
                         player.loadVideoById({
                             videoId: res.video_id,
