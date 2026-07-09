@@ -1,0 +1,109 @@
+import os
+import re
+import json
+
+# ==============================================================================
+# CONFIGURAÇÃO DE NOVAS FONTES DE DADOS
+# ==============================================================================
+
+# 1. Adicione aqui os links de QUALQUER playlist do YouTube (mesmo de terceiros)
+novas_playlists = [
+    "https://www.youtube.com/playlist?list=ID_DA_NOVA_PLAYLIST_AQUI",
+    "https://www.youtube.com/playlist?list=OUTRA_PLAYLIST_SE_HOUVER"
+]
+
+# 2. Adicione aqui IDs de vídeos avulsos que queira incluir diretamente
+videos_avulsos = [
+    "ID_DO_VIDEO_AVULSO_1",
+    "ID_DO_VIDEO_AVULSO_2"
+]
+
+# Nome do arquivo final que vai para o GitHub Pages
+ARQUIVO_BANCO = 'legendas_completo.json'
+
+# ==============================================================================
+# PROCESSO DE EXTRAÇÃO E AGREGAÇÃO (NÃO PRECISA ALTERAR)
+# ==============================================================================
+
+# Carrega o banco de dados existente ou cria um novo caso o arquivo não exista
+if os.path.exists(ARQUIVO_BANCO):
+    with open(ARQUIVO_BANCO, 'r', encoding='utf-8') as f:
+        banco_dados = json.load(f)
+    print(f"Banco de dados existente carregado com sucesso. Contém {len(banco_dados)} trechos.")
+else:
+    banco_dados = []
+    print("Nenhum banco de dados prévio encontrado. Criando um novo arquivo do zero.")
+
+# Cria um conjunto (set) de IDs de vídeos que já existem no banco para evitar duplicar dados
+videos_processados = set(item['video_id'] for item in banco_dados)
+
+def limpar_vtt(arquivo_vtt, video_id):
+    trechos = []
+    if not os.path.exists(arquivo_vtt): return trechos
+    with open(arquivo_vtt, 'r', encoding='utf-8') as f:
+        conteudo = f.read()
+    blocos = conteudo.split('\n\n')
+    for bloco in blocos:
+        linhas = bloco.strip().split('\n')
+        if len(linhas) >= 2:
+            tempo_match = re.search(r'(\d{2}):(\d{2}):(\d{2})[.,](\d{3})', linhas[0])
+            if tempo_match:
+                h, m, s, ms = map(int, tempo_match.groups())
+                segundos = h * 3600 + m * 60 + s + ms / 1000.0
+                texto = " ".join(linhas[1:])
+                texto = re.sub(r'<[^>]*>', '', texto).strip()
+                if texto and not texto.startswith('NOTE'):
+                    trechos.append({'video_id': video_id, 'texto': texto, 'tempo_inicio': segundos})
+    return trechos
+
+def processar_arquivos_baixados():
+    novos_trechos_contador = 0
+    arquivos_no_diretorio = os.listdir('.')
+    for arquivo in arquivos_no_diretorio:
+        if arquivo.endswith('.pt.vtt') or arquivo.endswith('.pt-BR.vtt'):
+            video_id = arquivo.split('.pt')[0]
+            
+            # Trava de segurança contra redundância
+            if video_id in videos_processados:
+                os.remove(arquivo)
+                continue
+                
+            trechos_video = limpar_vtt(arquivo, video_id)
+            banco_dados.extend(trechos_video)
+            novos_trechos_contador += len(trechos_video)
+            videos_processados.add(video_id)
+            os.remove(arquivo)
+    return novos_trechos_contador
+
+# --- ETAPA 1: Processar novas playlists ---
+for playlist_url in novas_playlists:
+    if "list=" in playlist_url:
+        print(f"\nMinerando novas legendas da playlist: {playlist_url}")
+        # Baixa as legendas, ignorando os vídeos cujos IDs já temos registrados no banco
+        os.system(f'yt-dlp --write-auto-subs --write-subs --sub-lang pt --skip-download --output "%(id)s.%(ext)s" "{playlist_url}"')
+        adicionados = processar_arquivos_baixados()
+        print(f"Concluído processamento da playlist. {adicionados} novos trechos acoplados.")
+
+# --- ETAPA 2: Processar vídeos avulsos ---
+if videos_avulsos:
+    print("\nMinerando legendas de vídeos avulsos configurados...")
+    for vid in videos_avulsos:
+        if vid in videos_processados:
+            print(f"Vídeo avulso {vid} já consta no banco de dados. Pulado.")
+            continue
+            
+        os.system(f'yt-dlp --write-auto-subs --write-subs --sub-lang pt --skip-download --output "{vid}.%(ext)s" "https://www.youtube.com/watch?v={vid}"')
+        adicionados = processar_arquivos_baixados()
+        if adicionados > 0:
+            print(f"Vídeo avulso {vid}: Processado com sucesso.")
+        else:
+            print(f"Vídeo avulso {vid}: Sem legendas em português disponíveis.")
+
+# --- ETAPA 3: Consolidar e Salvar o arquivo final ---
+with open(ARQUIVO_BANCO, 'w', encoding='utf-8') as f:
+    json.dump(banco_dados, f, ensure_ascii=False, indent=4)
+
+print(f"\n====================================================")
+print(f"PROCESSO CONCLUÍDO COM SUCESSO!")
+print(f"Volume total atualizado do seu banco de dados: {len(banco_dados)} trechos.")
+print(f"====================================================")

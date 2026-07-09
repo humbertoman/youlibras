@@ -32,6 +32,11 @@
 
     <div class="header">
         <input type="text" id="busca" class="search-input" placeholder="Digite uma palavra ou frase para buscar no contexto...">
+        <select id="filtro-direcao" style="padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px;">
+            <option value="todos">Todas as Direções</option>
+            <option value="pt-libras">Português ➔ Libras</option>
+            <option value="libras-pt">Libras ➔ Português</option>
+        </select>
         <button id="btn-buscar" class="search-btn">Pesquisar</button>
     </div>
 
@@ -58,12 +63,11 @@
         const firstScriptTag = document.getElementsByTagName('script')[0];
         firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 
-        // Chamada automática quando a API do YouTube estiver pronta
         function onYouTubeIframeAPIReady() {
             player = new YT.Player('player', {
                 height: '100%',
                 width: '100%',
-                videoId: '', // Inicia vazio
+                videoId: '', 
                 playerVars: { 'autoplay': 1, 'playsinline': 1 }
             });
         }
@@ -79,9 +83,10 @@
                 document.getElementById('resultados').innerHTML = "<p style='color:red;'>Erro ao carregar o banco de dados.</p>";
             });
 
-        // 3. Função de busca e renderização atualizada
+        // 3. Função de busca e renderização corrigida
         function executarBusca() {
             let termoOriginal = document.getElementById('busca').value.trim();
+            const filtroDirecao = document.getElementById('filtro-direcao').value; 
             const containerResultados = document.getElementById('resultados');
             containerResultados.innerHTML = "";
 
@@ -94,34 +99,33 @@
             let ultimoVideoId = null;
             let ultimoTempo = -999;
             
-            // Verifica se o termo começa e termina com aspas duplas (Busca Exata)
             const ehBuscaExata = termoOriginal.startsWith('"') && termoOriginal.endsWith('"');
             let termoParaBusca = termoOriginal.toLowerCase();
             let regexBusca = null;
 
             if (ehBuscaExata) {
-                // Remove as aspas do termo para fazer a busca do texto limpo
                 termoParaBusca = termoOriginal.slice(1, -1).toLowerCase();
-                
-                // Cria uma Expressão Regular para "Palavra Isolada" (\b representa os limites da palavra)
-                // O parâmetro 'i' indica que ignora maiúsculas/minúsculas
                 regexBusca = new RegExp(`\\b${termoParaBusca}\\b`, 'i');
             }
 
-            // Varre os 25 mil trechos aplicando a nova lógica e o filtro de proximidade
             bancoDados.forEach(item => {
-                let encontrou = false;
+                if (filtroDirecao !== "todos" && item.direcao && item.direcao !== filtroDirecao) {
+                    return; 
+                }
+                if (filtroDirecao === "pt-libras" && !item.direcao) {
+                    // Mantém os dados antigos associados retroativamente a pt-libras
+                } else if (filtroDirecao === "libras-pt" && !item.direcao) {
+                    return; 
+                }
 
+                let encontrou = false;
                 if (ehBuscaExata) {
-                    // Se for busca exata, testa com a Expressão Regular de palavra isolada
                     encontrou = regexBusca.test(item.texto);
                 } else {
-                    // Se não tiver aspas, mantém a busca antiga (acha no meio de qualquer palavra)
                     encontrou = item.texto.toLowerCase().includes(termoParaBusca);
                 }
 
                 if (encontrou) {
-                    // Filtro de proximidade (5 segundos no mesmo vídeo)
                     if (item.video_id === ultimoVideoId && (item.tempo_inicio - ultimoTempo) < 5) {
                         return;
                     }
@@ -138,13 +142,12 @@
 
             containerResultados.innerHTML = `<p style="color: green; margin-top:0;"><b>${resultadosFiltrados.length}</b> trechos encontrados:</p>`;
 
-            // Renderiza cada trecho como um card clicável
+            // --- BLOCO CORRIGIDO: RENDERIZAÇÃO DOS CARDS ---
             resultadosFiltrados.forEach(res => {
                 const minutos = Math.floor(res.tempo_inicio / 60);
                 const segundos = Math.floor(res.tempo_inicio % 60);
                 const tempoFormatado = `${String(minutos).padStart(2, '0')}:${String(segundos).padStart(2, '0')}`;
 
-                // Destaca apenas o termo pesquisado na tela
                 const regexDestaque = new RegExp(`(${termoParaBusca})`, 'gi');
                 const textoDestacado = res.texto.replace(regexDestaque, "<mark>$1</mark>");
 
@@ -168,7 +171,7 @@
 
                 containerResultados.appendChild(card);
             });
-        }
+        } // Fechamento correto da função executarBusca
 
         // Ouvintes de eventos dos botões
         document.getElementById('btn-buscar').addEventListener('click', executarBusca);
