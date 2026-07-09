@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Buscador de Contextos - Vídeos</title>
+    <style>
+        * { box-sizing: border-box; font-family: Arial, sans-serif; }
+        body { margin: 0; padding: 20px; background-color: #f4f6f9; display: flex; flex-direction: column; height: 100vh; }
+        
+        .header { margin-bottom: 20px; display: flex; gap: 10px; }
+        .search-input { flex: 1; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; }
+        .search-btn { padding: 12px 24px; font-size: 16px; background-color: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .search-btn:hover { background-color: #218838; }
+
+        .container { display: flex; gap: 20px; flex: 1; min-height: 0; }
+        
+        /* Coluna da Esquerda: Resultados */
+        .resultados-col { flex: 1; overflow-y: auto; background: white; padding: 15px; border-radius: 6px; border: 1px solid #e1e4e8; }
+        .trecho-card { padding: 12px; margin-bottom: 12px; border-left: 4px solid #28a745; background-color: #f8f9fa; cursor: pointer; transition: background 0.2s; }
+        .trecho-card:hover { background-color: #e9ecef; }
+        .trecho-tempo { font-size: 12px; color: #6c757d; font-weight: bold; margin-top: 5px; }
+        mark { background-color: #ffeb3b; font-weight: bold; }
+
+        /* Coluna da Direita: Player Fixo */
+        .player-col { width: 450px; display: flex; flex-direction: column; gap: 15px; position: sticky; top: 0; }
+        .player-wrapper { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 6px; overflow: hidden; }
+        iframe { width: 100%; height: 100%; border: none; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <input type="text" id="busca" class="search-input" placeholder="Digite uma palavra ou frase para buscar no contexto...">
+        <button id="btn-buscar" class="search-btn">Pesquisar</button>
+    </div>
+
+    <div class="container">
+        <div id="resultados" class="resultados-col">
+            <p style="color: gray;">Digite um termo acima para iniciar a busca nos contextos.</p>
+        </div>
+        
+        <div class="player-col">
+            <div class="player-wrapper">
+                <div id="player"></div>
+            </div>
+            <p id="player-status" style="font-size: 14px; color: #495057; text-align: center; margin: 0;">Nenhum vídeo selecionado</p>
+        </div>
+    </div>
+
+    <script>
+        let bancoDados = [];
+        let player;
+
+        // 1. Carrega a API do Player do YouTube de forma assíncrona
+        const tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/iframe_api";
+        const firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+        // Chamada automática quando a API do YouTube estiver pronta
+        function onYouTubeIframeAPIReady() {
+            player = new YT.Player('player', {
+                height: '100%',
+                width: '100%',
+                videoId: '', // Inicia vazio
+                playerVars: { 'autoplay': 1, 'playsinline': 1 }
+            });
+        }
+
+        // 2. Carrega o arquivo de dados JSON
+        fetch('legendas_completo.json')
+            .then(response => response.json())
+            .then(data => {
+                bancoDados = data;
+                console.log("Banco de dados carregado: " + bancoDados.length + " trechos.");
+            })
+            .catch(err => {
+                document.getElementById('resultados').innerHTML = "<p style='color:red;'>Erro ao carregar o banco de dados.</p>";
+            });
+
+        // 3. Função de busca e renderização
+        function executarBusca() {
+            const termo = document.getElementById('busca').value.strip ? document.getElementById('busca').value.strip().toLowerCase() : document.getElementById('busca').value.trim().toLowerCase();
+            const containerResultados = document.getElementById('resultados');
+            containerResultados.innerHTML = "";
+
+            if (!termo) {
+                containerResultados.innerHTML = "<p>Por favor, digite um termo.</p>";
+                return;
+            }
+
+            let resultadosFiltrados = [];
+            let ultimoVideoId = null;
+            let ultimoTempo = -999;
+
+            // Filtro de proximidade (mesma lógica usada no Colab)
+            bancoDados.forEach(item => {
+                if (item.texto.toLowerCase().includes(termo)) {
+                    if (item.video_id === ultimoVideoId && (item.tempo_inicio - ultimoTempo) < 5) {
+                        return;
+                    }
+                    resultadosFiltrados.push(item);
+                    ultimoVideoId = item.video_id;
+                    ultimoTempo = item.tempo_inicio;
+                }
+            });
+
+            if (resultadosFiltrados.length === 0) {
+                containerResultados.innerHTML = `<p style="color: red;">Nenhum resultado encontrado para "<b>${termo}</b>".</p>`;
+                return;
+            }
+
+            containerResultados.innerHTML = `<p style="color: green; margin-top:0;"><b>${resultadosFiltrados.length}</b> trechos encontrados:</p>`;
+
+            // Renderiza cada trecho como um card clicável
+            resultadosFiltrados.forEach(res => {
+                const minutos = Math.floor(res.tempo_inicio / 60);
+                const segundos = Math.floor(res.tempo_inicio % 60);
+                const tempoFormatado = `${String(minutos).padStart(2, '0')}:${String(segundos).padStart(2, '0')}`;
+
+                // Destaca a palavra buscada
+                const regex = new RegExp(`(${termo})`, 'gi');
+                const textoDestacado = res.texto.replace(regex, "<mark>$1</mark>");
+
+                const card = document.createElement('div');
+                card.className = 'trecho-card';
+                card.innerHTML = `
+                    <p style="margin: 0 0 5px 0;">... ${textoDestacado} ...</p>
+                    <div class="trecho-tempo">⏱️ Posição: ${tempoFormatado}</div>
+                `;
+
+                // Configura o clique para atualizar o player sem recarregar a página
+                card.onclick = () => {
+                    const folgaTempo = Math.max(0, Math.floor(res.tempo_inicio) - 2); // 2 segundos de folga
+                    
+                    if (player && player.loadVideoById) {
+                        player.loadVideoById({
+                            videoId: res.video_id,
+                            startSeconds: folgaTempo
+                        });
+                        document.getElementById('player-status').innerText = `Tocando vídeo ID: ${res.video_id} no tempo ${tempoFormatado}`;
+                    }
+                };
+
+                containerResultados.appendChild(card);
+            });
+        }
+
+        // Ouvintes de eventos dos botões
+        document.getElementById('btn-buscar').addEventListener('click', executarBusca);
+        document.getElementById('busca').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') executarBusca();
+        });
+    </script>
+</body>
+</html>
