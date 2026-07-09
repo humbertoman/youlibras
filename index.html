@@ -8,9 +8,10 @@
         * { box-sizing: border-box; font-family: Arial, sans-serif; }
         body { margin: 0; padding: 20px; background-color: #f4f6f9; display: flex; flex-direction: column; height: 100vh; }
         
-        .header { margin-bottom: 20px; display: flex; gap: 10px; }
-        .search-input { flex: 1; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; }
-        .search-btn { padding: 12px 24px; font-size: 16px; background-color: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .header { margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap; }
+        .search-input { flex: 1; min-width: 200px; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; }
+        #filtro-direcao { padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; background: white; }
+        .search-btn { padding: 12px 24px; font-size: 16px; background-color: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; width: auto; }
         .search-btn:hover { background-color: #218838; }
 
         .container { display: flex; gap: 20px; flex: 1; min-height: 0; }
@@ -26,13 +27,38 @@
         .player-col { width: 450px; display: flex; flex-direction: column; gap: 15px; position: sticky; top: 0; }
         .player-wrapper { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 6px; overflow: hidden; }
         iframe { width: 100%; height: 100%; border: none; }
+        #player-status { font-size: 14px; color: #495057; text-align: center; margin: 0; }
+
+        /* Ajustes para Celular (Telas de até 768px) */
+        @media (max-width: 768px) {
+            body { padding: 10px; height: auto; display: block; }
+            .header { gap: 8px; }
+            .search-input { width: 100%; flex: none; }
+            #filtro-direcao { flex: 1; }
+            .search-btn { flex: 1; }
+            
+            .container { flex-direction: column-reverse; display: flex; gap: 15px; }
+            
+            .player-col { 
+                width: 100%; 
+                position: sticky; 
+                top: 0; 
+                background: #f4f6f9; 
+                padding: 10px 0; 
+                z-index: 1000; 
+                box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+            }
+            
+            #player-status { font-size: 12px; }
+            .resultados-col { overflow-y: visible; border: 1px solid #e1e4e8; }
+        }
     </style>
 </head>
 <body>
 
     <div class="header">
         <input type="text" id="busca" class="search-input" placeholder="Digite uma palavra ou frase para buscar no contexto...">
-        <select id="filtro-direcao" style="padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px;">
+        <select id="filtro-direcao">
             <option value="todos">Todas as Direções</option>
             <option value="pt-libras">Português ➔ Libras</option>
             <option value="libras-pt">Libras ➔ Português</option>
@@ -49,15 +75,19 @@
             <div class="player-wrapper">
                 <div id="player"></div>
             </div>
-            <p id="player-status" style="font-size: 14px; color: #495057; text-align: center; margin: 0;">Nenhum vídeo selecionado</p>
+            <p id="player-status">Nenhum vídeo selecionado</p>
         </div>
     </div>
 
     <script>
-        let bancoDados = [];
+        // Banco de dados reserva para testes caso o arquivo local falhe no CORS do VS Code
+        let bancoDados = [
+            { "video_id": "U80ArHqzkJs", "texto": "exemplo de contação de histórias em libras com o gato viriato mente isolada", "tempo_inicio": 26, "direcao": "libras-pt" },
+            { "video_id": "U80ArHqzkJs", "texto": "este é um teste local que funciona puramente para verificar os botões", "tempo_inicio": 57, "direcao": "pt-libras" }
+        ];
         let player;
 
-        // 1. Carrega a API do Player do YouTube de forma assíncrona
+        // 1. API do Player do YouTube
         const tag = document.createElement('script');
         tag.src = "https://www.youtube.com/iframe_api";
         const firstScriptTag = document.getElementsByTagName('script')[0];
@@ -72,18 +102,22 @@
             });
         }
 
-        // 2. Carrega o arquivo de dados JSON
+        // 2. Tenta carregar o arquivo JSON real
         fetch('legendas_completo.json')
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) throw new Error("Erro ao ler arquivo");
+                return response.json();
+            })
             .then(data => {
                 bancoDados = data;
-                console.log("Banco de dados carregado: " + bancoDados.length + " trechos.");
+                console.log("Banco de dados carregado com sucesso: " + bancoDados.length + " trechos.");
             })
             .catch(err => {
-                document.getElementById('resultados').innerHTML = "<p style='color:red;'>Erro ao carregar o banco de dados.</p>";
+                console.warn("Aviso: Usando banco de dados local temporário devido às travas do navegador.");
+                document.getElementById('resultados').innerHTML = "<p style='color:orange;'>Nota: Rodando em modo de teste local. No GitHub Pages os dados completos funcionarão.</p>";
             });
 
-        // 3. Função de busca e renderização corrigida
+        // 3. Função de busca e renderização estável
         function executarBusca() {
             let termoOriginal = document.getElementById('busca').value.trim();
             const filtroDirecao = document.getElementById('filtro-direcao').value; 
@@ -105,7 +139,9 @@
 
             if (ehBuscaExata) {
                 termoParaBusca = termoOriginal.slice(1, -1).toLowerCase();
-                regexBusca = new RegExp(`\\b${termoParaBusca}\\b`, 'i');
+                // Escapa caracteres especiais para a RegEx não quebrar
+                const termoEscapado = termoParaBusca.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+                regexBusca = new RegExp(`\\b${termoEscapado}\\b`, 'i');
             }
 
             bancoDados.forEach(item => {
@@ -113,7 +149,7 @@
                     return; 
                 }
                 if (filtroDirecao === "pt-libras" && !item.direcao) {
-                    // Mantém os dados antigos associados retroativamente a pt-libras
+                    // Ignora se não coincidir
                 } else if (filtroDirecao === "libras-pt" && !item.direcao) {
                     return; 
                 }
@@ -130,7 +166,7 @@
                         return;
                     }
                     resultadosFiltrados.push(item);
-                    ultimoVideoId = item.video_id;
+                    video_id = item.video_id;
                     ultimoTempo = item.tempo_inicio;
                 }
             });
@@ -140,15 +176,19 @@
                 return;
             }
 
-            containerResultados.innerHTML = `<p style="color: green; margin-top:0;"><b>${resultadosFiltrados.length}</b> trechos encontrados:</p>`;
+            // Cria contêiner estável
+            const marcadorResultados = document.createElement('p');
+            marcadorResultados.style.color = "green";
+            marcadorResultados.style.marginTop = "0px";
+            marcadorResultados.innerHTML = `<b>${resultadosFiltrados.length}</b> trechos encontrados:`;
+            containerResultados.appendChild(marcadorResultados);
 
-            // --- BLOCO CORRIGIDO: RENDERIZAÇÃO DOS CARDS ---
             resultadosFiltrados.forEach(res => {
                 const minutos = Math.floor(res.tempo_inicio / 60);
                 const segundos = Math.floor(res.tempo_inicio % 60);
                 const tempoFormatado = `${String(minutos).padStart(2, '0')}:${String(segundos).padStart(2, '0')}`;
 
-                const regexDestaque = new RegExp(`(${termoParaBusca})`, 'gi');
+                const regexDestaque = new RegExp(`(${termoParaBusca.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi');
                 const textoDestacado = res.texto.replace(regexDestaque, "<mark>$1</mark>");
 
                 const card = document.createElement('div');
@@ -171,13 +211,15 @@
 
                 containerResultados.appendChild(card);
             });
-        } // Fechamento correto da função executarBusca
+        }
 
-        // Ouvintes de eventos dos botões
-        document.getElementById('btn-buscar').addEventListener('click', executarBusca);
-        document.getElementById('busca').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') executarBusca();
-        });
+        // Vincular eventos estritamente após a declaração da função
+        document.getElementById('btn-buscar').onclick = executarBusca;
+        document.getElementById('busca').onkeypress = function(e) {
+            if (e.key === 'Enter') {
+                executarBusca();
+            }
+        };
     </script>
 </body>
 </html>
